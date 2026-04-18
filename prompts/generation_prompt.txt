@@ -1,20 +1,29 @@
-You are a senior credit analyst at a leveraged finance desk. Generate {batch_size} realistic, distinct credit research documents for leveraged loan issuers.
+You are a senior credit analyst at a leveraged finance desk. Generate {batch_size} realistic, distinct credit memo documents for leveraged loan issuers.
 
 Each document must follow this exact JSON schema — return a JSON array of {batch_size} objects, nothing else:
 
 [
   {{
     "doc_id": "<uuid>",
-    "issuer": "<company name>",
+
+    "issuer": "<legal entity name, e.g. Acme Holdings LLC>",
+    "borrower": "<operating company name if different from issuer in LBO structure, else null>",
     "parent_issuer": "<PE sponsor or parent, or null>",
     "sector": "<sector>",
     "rating_bucket": "<rating>",
     "date": "<YYYY-MM-DD between 2020-01-01 and 2024-12-31>",
     "doc_type": "<doc_type>",
     "event_type": "<event_type>",
+
+    "net_leverage": <float 2.0–14.0, net debt / LTM EBITDA — must be consistent with rating_bucket>,
+    "market_cap": <float in $mm, or null for private/sponsor-backed issuers — ~60% should be null>,
+    "collateral": "<one of: first_lien | second_lien | unsecured | first_lien_second_lien_split | super_senior_revolver>",
+    "esg_score": <float 0–100, or null — ~40% should be null to reflect real coverage gaps>,
+
     "headline": "<one sentence, 10-20 words>",
     "summary_text": "<2-4 sentence analytical summary, use credit analyst voice>",
-    "full_commentary": "<6-12 sentences of detailed analyst commentary — include specific financial metrics like leverage ratios, EBITDA, interest coverage, liquidity runway, spread levels. Use realistic numbers.>",
+    "full_commentary": "<6-12 sentences of detailed analyst commentary — reference net_leverage, collateral, and any ESG considerations explicitly. Include EBITDA, interest coverage, liquidity runway, spread levels. All numbers must be internally consistent.>",
+    "recommendations": "<3-6 sentences of analyst recommendation prose — state the position action, rationale, key risks to the thesis, and any conditions that would trigger a reassessment. This is the primary semantic retrieval field.>",
     "recommended_action": "<one of: maintain_position | reduce_exposure | add_on_weakness | escalate_for_review | place_on_watchlist | seek_more_diligence | reassess_thesis | exit>",
     "outcome_note": "<1-2 sentences on what actually happened or was expected, written in past or conditional tense>",
     "exposure_change": <float between -1.0 and 1.0, negative = reduction>,
@@ -30,7 +39,9 @@ Constraints:
 - Rating bucket: choose from {rating_buckets}
 - Doc type: choose from {doc_types}
 - Event type: choose from {event_types}
-- Use varied, realistic issuer names (not generic placeholders)
+- net_leverage must be plausible for the rating_bucket (e.g. Caa1 issuers typically 8x–14x, Ba1 issuers 3x–5x)
+- borrower is distinct from issuer only in LBO structures where HoldCo issues the debt — use null otherwise
+- Use varied, realistic issuer and borrower names (not generic placeholders)
 - Each document must be linguistically distinct — vary sentence structure, terminology, and analytical framing
 - Include label noise: some documents should have ambiguous or overlapping risk themes
 - Dates should be spread across 2020-2024

@@ -124,8 +124,11 @@ def call_azure(client: AzureOpenAI, prompt: str, batch_size: int) -> list[dict]:
 REQUIRED_FIELDS = {
     "issuer", "sector", "rating_bucket", "date", "doc_type",
     "event_type", "headline", "summary_text", "full_commentary",
-    "recommended_action", "outcome_note", "portfolio_action",
+    "recommendations", "recommended_action", "outcome_note", "portfolio_action",
 }
+
+# Optional — present but nullable (float fields)
+OPTIONAL_NUMERIC = {"net_leverage", "market_cap", "esg_score"}
 
 VALID_ACTIONS = {
     "maintain_position", "reduce_exposure", "add_on_weakness",
@@ -134,6 +137,11 @@ VALID_ACTIONS = {
 }
 
 VALID_PORTFOLIO = {"hold", "trim", "add", "sell", "monitor"}
+
+VALID_COLLATERAL = {
+    "first_lien", "second_lien", "unsecured",
+    "first_lien_second_lien_split", "super_senior_revolver",
+}
 
 
 def validate_doc(doc: dict) -> dict | None:
@@ -154,11 +162,19 @@ def validate_doc(doc: dict) -> dict | None:
     if doc.get("portfolio_action") not in VALID_PORTFOLIO:
         doc["portfolio_action"] = "monitor"
 
+    if doc.get("collateral") not in VALID_COLLATERAL:
+        doc["collateral"] = None
+
     # Coerce numerics safely
     doc["exposure_change"] = float(doc.get("exposure_change") or 0.0)
     doc["spread_change"] = int(doc.get("spread_change") or 0)
     doc["rating_change"] = int(doc.get("rating_change") or 0)
     doc["watchlist_flag"] = bool(doc.get("watchlist_flag", False))
+
+    # Optional numeric fields — coerce to float or keep None
+    for field in OPTIONAL_NUMERIC:
+        val = doc.get(field)
+        doc[field] = float(val) if val is not None else None
 
     # Guarantee a doc_id
     if not doc.get("doc_id"):

@@ -83,6 +83,26 @@ try:
 except ImportError:
     pass
 
+# ── Safe boolean coercion ─────────────────────────────────────────────────────
+_BOOL_TRUE = {True, 1, "1", "true", "yes", "y"}
+_BOOL_FALSE = {False, 0, "0", "false", "no", "n", None, ""}
+
+
+def _to_bool(value: object) -> bool:
+    """Parse boolean robustly — handles string 'false'/'no' as False.
+
+    LLMs sometimes return JSON booleans as strings (e.g. "false" instead
+    of false). Plain bool("false") returns True, which is incorrect.
+    """
+    if isinstance(value, str):
+        value = value.strip().lower()
+    if value in _BOOL_TRUE:
+        return True
+    if value in _BOOL_FALSE:
+        return False
+    return False  # unknown value — safe default
+
+
 # ── Prompt template sections ──────────────────────────────────────────────────
 _FULL_PROMPT = PROMPT_PATH.read_text()
 # Split on the section B marker — section A ends there
@@ -287,7 +307,7 @@ def _parse_label(raw: str, doc_id: str) -> dict[str, Any] | None:
     except (ValueError, TypeError):
         label["confidence"] = 0.0
 
-    label["ambiguous"] = bool(label.get("ambiguous", False))
+    label["ambiguous"] = _to_bool(label.get("ambiguous", False))
     label["doc_id"] = doc_id
     return label
 

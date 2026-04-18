@@ -1,0 +1,98 @@
+## SECTION A — Per-document labeling
+## Used for labeling each document in the 200-doc sample
+
+You are a senior credit analyst performing exploratory analysis on a corpus of
+leveraged loan credit memos. Your task is to label a single memo and extract
+its key analytical components.
+
+Given the following credit memo fields, return a JSON object with exactly
+these keys — no preamble, no markdown fences:
+
+{{
+  "risk_theme": "<primary risk theme — choose from seed list or propose a new label>",
+  "action":     "<recommended action — choose from seed list or propose a new label>",
+  "outcome":    "<expected or observed outcome — choose from seed list or propose a new label>",
+  "trigger":    "<one sentence: what specific event or data point triggered this memo>",
+  "risk_signal":"<one sentence: what is the specific credit concern>",
+  "analyst_stance": "<one sentence: what the analyst recommends and why>",
+  "forward_view":   "<one sentence: what outcome is expected if the stance is correct>",
+  "confidence": <float 0.0–1.0: how clearly does this memo fit a single risk theme>,
+  "ambiguous":  <true if this memo could reasonably fit two or more risk themes, else false>,
+  "new_label_proposed": "<if none of the seed labels fit, propose one — else null>"
+}}
+
+Seed risk themes (use one, or propose a new label if none fit):
+{risk_themes}
+
+Seed actions (use one, or propose a new label if none fit):
+{actions}
+
+Seed outcomes (use one, or propose a new label if none fit):
+{outcomes}
+
+Memo to label:
+Issuer: {issuer}
+Sector: {sector}
+Rating: {rating_bucket}
+Doc type: {doc_type}
+Headline: {headline}
+Summary: {summary_text}
+Commentary: {full_commentary}
+Recommendations: {recommendations}
+Recommended action: {recommended_action}
+
+Return only the JSON object described above.
+
+---
+
+## SECTION B — Taxonomy synthesis
+## Used once after all 200 docs are labeled
+
+You are a senior credit analyst reviewing the results of an LLM-first
+exploratory analysis on {n_docs} leveraged loan credit memos. You have
+been given the label outputs from all {n_docs} memos.
+
+Your task is to synthesize a refined taxonomy from these labels.
+
+Return a JSON object with exactly these keys — no preamble, no markdown fences:
+
+{{
+  "risk_themes": [
+    {{
+      "label": "<theme label>",
+      "count": <int: how many docs were labeled with this theme>,
+      "description": "<one sentence defining this theme>",
+      "retain": <true if this theme appears in 3 or more docs, else false>
+    }}
+  ],
+  "actions": [
+    {{
+      "label": "<action label>",
+      "count": <int>,
+      "retain": <true if count >= 2>
+    }}
+  ],
+  "outcomes": [
+    {{
+      "label": "<outcome label>",
+      "count": <int>,
+      "retain": <true if count >= 2>
+    }}
+  ],
+  "new_labels_proposed": [
+    {{
+      "label": "<proposed label>",
+      "category": "<risk_theme | action | outcome>",
+      "count": <int: how many docs triggered this proposal>,
+      "recommendation": "<merge_into_existing | add_to_taxonomy | discard>"
+    }}
+  ],
+  "ambiguous_cases": <int: total docs flagged as ambiguous>,
+  "low_confidence_cases": <int: docs with confidence < 0.6>,
+  "analyst_notes": "<2-3 sentences of observations about the corpus — what risk themes dominate, what is sparse, what surprised you>"
+}}
+
+Label outputs from all {n_docs} memos:
+{label_outputs}
+
+Return only the JSON object described above.

@@ -312,7 +312,7 @@ class TestGenerateLoop:
                 "chat_deployment": "gpt-4o",
             },
             "logging": {"level": "WARNING"},
-        }), patch("src.generation.generate_corpus.build_client", return_value=MagicMock()), \
+        }), patch("src.generation.generate_corpus.get_llm_client", return_value=MagicMock()), \
            patch("src.generation.generate_corpus.call_azure", side_effect=fake_call_azure), \
            patch("src.generation.generate_corpus.build_prompt", return_value="mock prompt"), \
            patch("src.generation.generate_corpus.ROOT", tmp_path), \
@@ -350,7 +350,7 @@ class TestGenerateLoop:
                 "chat_deployment": "gpt-4o",
             },
             "logging": {"level": "WARNING"},
-        }), patch("src.generation.generate_corpus.build_client", return_value=MagicMock()), \
+        }), patch("src.generation.generate_corpus.get_llm_client", return_value=MagicMock()), \
            patch("src.generation.generate_corpus.call_azure", side_effect=fake_call_azure), \
            patch("src.generation.generate_corpus.build_prompt", return_value="mock prompt"), \
            patch("src.generation.generate_corpus.ROOT", tmp_path), \
@@ -397,7 +397,7 @@ class TestGenerateLoop:
             "azure_openai": {"max_tokens": 100, "temperature": 0.8, "api_version": "2024", "chat_deployment": "gpt-4o"},
             "logging": {"level": "WARNING"},
         }), patch("src.generation.generate_corpus.ROOT", tmp_path), \
-           patch("src.generation.generate_corpus.build_client", side_effect=lambda: client_calls.append(1) or MagicMock()):
+           patch("src.generation.generate_corpus.get_llm_client", side_effect=lambda: client_calls.append(1) or MagicMock()):
             generate(target=5)
 
         assert len(client_calls) == 0, "build_client() must not be called on a no-op resume"
@@ -416,7 +416,7 @@ class TestGenerateLoop:
             "corpus": {"target_docs": 7, "batch_size": 5, "output_path": str(out_path)},
             "azure_openai": {"max_tokens": 100, "temperature": 0.8, "api_version": "2024", "chat_deployment": "gpt-4o"},
             "logging": {"level": "WARNING"},
-        }), patch("src.generation.generate_corpus.build_client", return_value=MagicMock()), \
+        }), patch("src.generation.generate_corpus.get_llm_client", return_value=MagicMock()), \
            patch("src.generation.generate_corpus.call_azure", side_effect=fake_call_azure), \
            patch("src.generation.generate_corpus.build_prompt", return_value="mock prompt"), \
            patch("src.generation.generate_corpus.ROOT", tmp_path), \

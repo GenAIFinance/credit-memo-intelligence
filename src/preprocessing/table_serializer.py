@@ -22,7 +22,6 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from openai import AzureOpenAI
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -42,68 +41,19 @@ with open(CONFIG_PATH) as f:
 
 log = logging.getLogger(__name__)
 
-# ── Transient error types for retry ──────────────────────────────────────────
-_TRANSIENT_ERRORS: tuple[type[Exception], ...] = (
-    TimeoutError,
-    ConnectionError,
-)
+# ── LLM client — provided by src.utils.llm_client ───────────────────────────
+from src.utils.llm_client import get_llm_client, get_model_name, get_provider_cfg
 
+# Transient error types for retry
+_TRANSIENT_ERRORS: tuple[type[Exception], ...] = (TimeoutError, ConnectionError)
 try:
-    from openai import (
-        APIConnectionError,
-        APITimeoutError,
-        InternalServerError,
-        RateLimitError,
-    )
+    from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
     _TRANSIENT_ERRORS = (
-        APIConnectionError,
-        APITimeoutError,
-        InternalServerError,
-        RateLimitError,
-        TimeoutError,
-        ConnectionError,
+        APIConnectionError, APITimeoutError, InternalServerError,
+        RateLimitError, TimeoutError, ConnectionError,
     )
 except ImportError:
     pass
-
-
-def _resolve_deployment() -> str:
-    """Resolve Azure deployment name from env or config.
-
-    Handles ${VAR_NAME} template syntax in config values.
-    """
-    env_override = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
-    if env_override:
-        return env_override
-
-    cfg_value = CFG["azure_openai"]["chat_deployment"]
-    match = re.fullmatch(r"\$\{(\w+)\}", cfg_value.strip())
-    if match:
-        var_name = match.group(1)
-        resolved = os.environ.get(var_name)
-        if not resolved:
-            raise EnvironmentError(
-                f"Config references ${{{var_name}}} but that env var is not set."
-            )
-        return resolved
-    return cfg_value
-
-
-def _build_client() -> AzureOpenAI:
-    """Build and return an authenticated AzureOpenAI client."""
-    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
-
-    if not endpoint or not api_key:
-        raise EnvironmentError(
-            "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set."
-        )
-
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version=CFG["azure_openai"]["api_version"],
-    )
 
 
 def _format_table_data(table_data: dict[str, Any]) -> str:
@@ -138,12 +88,12 @@ class TableSerializer:
         self._max_retries = max_retries
         self._fallback_to_template = fallback_to_template
         self._prompt_template = PROMPT_PATH.read_text()
-        self._client: AzureOpenAI | None = None
+        self._client: object | None = None
 
-    def _get_client(self) -> AzureOpenAI:
-        """Lazy-initialize the Azure client."""
+    def _get_client(self) -> object:
+        """Lazy-initialize the LLM client via provider abstraction layer."""
         if self._client is None:
-            self._client = _build_client()
+            self._client = get_llm_client()
         return self._client
 
     @retry(
@@ -152,12 +102,11 @@ class TableSerializer:
         stop=stop_after_attempt(3),
     )
     def _call_api(self, prompt: str) -> str:
-        """Call Azure OpenAI with retry on transient errors only."""
+        """Call the configured LLM with retry on transient errors only."""
         client = self._get_client()
-        deployment = _resolve_deployment()
 
         response = client.chat.completions.create(
-            model=deployment,
+            model=get_model_name(),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=300,
             temperature=0.2,  # low temperature — factual serialization

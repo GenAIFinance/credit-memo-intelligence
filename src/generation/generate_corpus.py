@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-from openai import AzureOpenAI
+from src.utils.llm_client import get_llm_client, get_model_name, get_provider_cfg
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -48,23 +48,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ── Azure OpenAI client ───────────────────────────────────────────────────────
-def build_client() -> AzureOpenAI:
-    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
-    api_version = CFG["azure_openai"]["api_version"]
-
-    if not endpoint or not api_key:
-        raise EnvironmentError(
-            "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set. "
-            "Copy .env.example to .env and fill in your values."
-        )
-
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version=api_version,
-    )
+# ── LLM client — provided by src.utils.llm_client ────────────────────────────
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
@@ -82,30 +66,7 @@ def build_prompt(batch_size: int) -> str:
     )
 
 
-def _resolve_deployment() -> str:
-    """Resolve Azure deployment name from env or config.
 
-    Config values templated as ${VAR_NAME} are resolved via os.environ.
-    Literal config values are used as-is, avoiding brittle string stripping.
-    """
-    env_override = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
-    if env_override:
-        return env_override
-
-    cfg_value = CFG["azure_openai"]["chat_deployment"]
-    # Resolve ${VAR_NAME} template syntax
-    import re
-    match = re.fullmatch(r"\$\{(\w+)\}", cfg_value.strip())
-    if match:
-        var_name = match.group(1)
-        resolved = os.environ.get(var_name)
-        if not resolved:
-            raise EnvironmentError(
-                f"Config references ${{{var_name}}} but that env var is not set."
-            )
-        return resolved
-    # Literal value — use directly
-    return cfg_value
 
 
 # ── Response parsing ──────────────────────────────────────────────────────────
@@ -168,19 +129,21 @@ except ImportError:
     wait=wait_exponential(multiplier=2, min=4, max=60),
     stop=stop_after_attempt(5),
 )
-def call_azure(client: AzureOpenAI, prompt: str, batch_size: int) -> list[dict]:
-    """Call Azure OpenAI and return a parsed list of document dicts.
+def call_azure(client: object, prompt: str, batch_size: int) -> list[dict]:
+    """Call the configured LLM and return a parsed list of document dicts.
 
+    Works with both OpenAI and AzureOpenAI clients — provider is resolved
+    by get_model_name() and get_provider_cfg() from src.utils.llm_client.
     Retries only on transient network/rate-limit errors.
     Raises ValueError immediately on bad response shapes (no retry).
     """
-    deployment = _resolve_deployment()
+    provider_cfg = get_provider_cfg()
 
     response = client.chat.completions.create(
-        model=deployment,
+        model=get_model_name(),
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=CFG["azure_openai"]["max_tokens"] * batch_size,
-        temperature=CFG["azure_openai"]["temperature"],
+        max_tokens=provider_cfg["max_tokens"] * batch_size,
+        temperature=provider_cfg["temperature"],
         response_format={"type": "json_object"},
     )
 
@@ -337,7 +300,7 @@ def generate(target: int | None = None) -> None:
         log.info("Already have %d docs (target %d). Nothing to do.", already_done, target)
         return
 
-    client = build_client()
+    client = get_llm_client()
 
     log.info(
         "Generating docs (target=%d, already_done=%d, batch_size=%d)",

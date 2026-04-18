@@ -16,7 +16,7 @@ Each document must follow this exact JSON schema — return a JSON array of {bat
     "event_type": "<event_type>",
 
     "net_leverage": <float 2.0–14.0, net debt / LTM EBITDA — must be consistent with rating_bucket>,
-    "market_cap": <float in $mm, or null for private/sponsor-backed issuers — ~60% should be null>,
+    "total_cap": <float in $mm — total capitalization (Total Debt + Equity) from cap table. Must be internally consistent: total_cap = total_debt + implied_equity. Always populate — derive from deal size and leverage if needed>,
     "collateral": "<one of: first_lien | second_lien | unsecured | first_lien_second_lien_split | super_senior_revolver>",
     "esg_score": <float 0–100, or null — ~40% should be null to reflect real coverage gaps>,
 
@@ -40,6 +40,7 @@ Constraints:
 - Doc type: choose from {doc_types}
 - Event type: choose from {event_types}
 - net_leverage must be plausible for the rating_bucket (e.g. Caa1 issuers typically 8x–14x, Ba1 issuers 3x–5x)
+- total_cap must be internally consistent: total_cap = total_debt + implied_equity. For a $500mm EBITDA issuer at 6x leverage, total_debt ≈ $3,000mm; implied_equity varies by sponsor entry multiple
 - borrower is distinct from issuer only in LBO structures where HoldCo issues the debt — use null otherwise
 - Use varied, realistic issuer and borrower names (not generic placeholders)
 - Each document must be linguistically distinct — vary sentence structure, terminology, and analytical framing

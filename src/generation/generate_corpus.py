@@ -128,7 +128,10 @@ REQUIRED_FIELDS = {
 }
 
 # Optional — present but nullable (float fields)
-OPTIONAL_NUMERIC = {"net_leverage", "market_cap", "esg_score"}
+OPTIONAL_NUMERIC = {"net_leverage", "esg_score"}
+
+# Required numeric — always expected, coerce to float
+REQUIRED_NUMERIC = {"total_cap"}
 
 VALID_ACTIONS = {
     "maintain_position", "reduce_exposure", "add_on_weakness",
@@ -170,6 +173,14 @@ def validate_doc(doc: dict) -> dict | None:
     doc["spread_change"] = int(doc.get("spread_change") or 0)
     doc["rating_change"] = int(doc.get("rating_change") or 0)
     doc["watchlist_flag"] = bool(doc.get("watchlist_flag", False))
+
+    # Required numeric fields — coerce to float, drop doc if missing
+    for field in REQUIRED_NUMERIC:
+        val = doc.get(field)
+        if val is None:
+            log.debug("Dropping doc missing required numeric field: %s", field)
+            return None
+        doc[field] = float(val)
 
     # Optional numeric fields — coerce to float or keep None
     for field in OPTIONAL_NUMERIC:

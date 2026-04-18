@@ -119,11 +119,11 @@ metrics:
       unit: "x EBITDA"
       description: "Net debt / LTM EBITDA at memo date (e.g. 6.8)"
       range: [0.0, 20.0]
-    market_cap:
+    total_cap:
       type: float
       required: false
       unit: "$mm"
-      description: "Equity market cap — often null for private / sponsor-backed issuers"
+      description: "Total capitalization (Total Debt + Equity) from cap table — populated when cap table is present"
     collateral:
       type: categorical
       required: false

@@ -3,6 +3,18 @@
 # Master configuration — all tunable params live here
 # ─────────────────────────────────────────────
 
+# ── LLM provider selection ────────────────────
+# Switch providers by changing 'provider' only — no code changes needed
+llm:
+  provider: "openai"                             # options: openai | azure
+
+# ── OpenAI (personal API) ─────────────────────
+openai:
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4o"
+  max_tokens: 1800
+  temperature: 0.85
+
 # ── Azure OpenAI ──────────────────────────────
 azure_openai:
   endpoint: "${AZURE_OPENAI_ENDPOINT}"          # e.g. https://<resource>.openai.azure.com/

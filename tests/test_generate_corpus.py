@@ -369,3 +369,59 @@ class TestGenerateLoop:
         }), patch("src.generation.generate_corpus.ROOT", tmp_path):
             with pytest.raises(ValueError, match="positive integer"):
                 generate(target=-1)
+
+    def test_explicit_zero_target_raises(self, tmp_path):
+        """target=0 must raise immediately — not silently fall back to config default."""
+        from src.generation.generate_corpus import generate
+        with patch("src.generation.generate_corpus.CFG", {
+            "corpus": {"target_docs": 3000, "batch_size": 5, "output_path": str(tmp_path / "x.jsonl")},
+            "azure_openai": {"max_tokens": 100, "temperature": 0.8, "api_version": "2024", "chat_deployment": "gpt-4o"},
+            "logging": {"level": "WARNING"},
+        }), patch("src.generation.generate_corpus.ROOT", tmp_path):
+            with pytest.raises(ValueError, match="positive integer"):
+                generate(target=0)
+
+    def test_resume_noop_does_not_require_azure_client(self, tmp_path):
+        """If corpus already meets target, no Azure client should be created."""
+        from src.generation.generate_corpus import generate
+
+        # Pre-populate output with enough docs to satisfy target
+        out_path = tmp_path / "corpus.jsonl"
+        for _ in range(5):
+            out_path.open("a").write('{"doc_id": "x"}\n')
+
+        client_calls = []
+
+        with patch("src.generation.generate_corpus.CFG", {
+            "corpus": {"target_docs": 5, "batch_size": 5, "output_path": str(out_path)},
+            "azure_openai": {"max_tokens": 100, "temperature": 0.8, "api_version": "2024", "chat_deployment": "gpt-4o"},
+            "logging": {"level": "WARNING"},
+        }), patch("src.generation.generate_corpus.ROOT", tmp_path), \
+           patch("src.generation.generate_corpus.build_client", side_effect=lambda: client_calls.append(1) or MagicMock()):
+            generate(target=5)
+
+        assert len(client_calls) == 0, "build_client() must not be called on a no-op resume"
+
+    def test_batch_overshoot_capped_at_target(self, tmp_path):
+        """If model returns more valid docs than needed, written count must not exceed target."""
+        from src.generation.generate_corpus import generate
+
+        def fake_call_azure(client, prompt, batch_size):
+            # Return double the requested batch — model over-returning
+            return [self._make_doc() for _ in range(batch_size * 2)]
+
+        out_path = tmp_path / "corpus.jsonl"
+
+        with patch("src.generation.generate_corpus.CFG", {
+            "corpus": {"target_docs": 7, "batch_size": 5, "output_path": str(out_path)},
+            "azure_openai": {"max_tokens": 100, "temperature": 0.8, "api_version": "2024", "chat_deployment": "gpt-4o"},
+            "logging": {"level": "WARNING"},
+        }), patch("src.generation.generate_corpus.build_client", return_value=MagicMock()), \
+           patch("src.generation.generate_corpus.call_azure", side_effect=fake_call_azure), \
+           patch("src.generation.generate_corpus.build_prompt", return_value="mock prompt"), \
+           patch("src.generation.generate_corpus.ROOT", tmp_path), \
+           patch("src.generation.generate_corpus.time.sleep"):
+            generate(target=7)
+
+        written = count_existing(out_path)
+        assert written == 7, f"Expected exactly 7 docs, got {written}"

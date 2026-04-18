@@ -317,7 +317,9 @@ def generate(target: int | None = None) -> None:
     requested) do not cause the corpus to silently undershoot the target.
     """
     corpus_cfg = CFG["corpus"]
-    target = target or corpus_cfg["target_docs"]
+    # Use config default only when caller passed None — not when they passed 0
+    if target is None:
+        target = corpus_cfg["target_docs"]
     if target <= 0:
         raise ValueError(f"target must be a positive integer, got {target}")
 
@@ -328,12 +330,14 @@ def generate(target: int | None = None) -> None:
     output_path = ROOT / corpus_cfg["output_path"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    client = build_client()
+    # Check resume state BEFORE creating the Azure client —
+    # a no-op rerun should never fail on missing credentials
     already_done = count_existing(output_path)
-
     if already_done >= target:
         log.info("Already have %d docs (target %d). Nothing to do.", already_done, target)
         return
+
+    client = build_client()
 
     log.info(
         "Generating docs (target=%d, already_done=%d, batch_size=%d)",
@@ -367,6 +371,10 @@ def generate(target: int | None = None) -> None:
                 else:
                     batch_written = 0
                     for doc in docs:
+                        # Cap writes at remaining quota — model may over-return
+                        if written + batch_written >= target:
+                            log.debug("Target reached mid-batch — discarding surplus docs.")
+                            break
                         clean = validate_doc(doc)
                         if clean:
                             out_f.write(json.dumps(clean) + "\n")

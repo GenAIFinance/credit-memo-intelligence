@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────
+# Credit Risk Theme & Workflow Intelligence Platform
+# Master configuration — all tunable params live here
+# ─────────────────────────────────────────────
+
+# ── Azure OpenAI ──────────────────────────────
+azure_openai:
+  endpoint: "${AZURE_OPENAI_ENDPOINT}"          # e.g. https://<resource>.openai.azure.com/
+  api_key: "${AZURE_OPENAI_API_KEY}"
+  api_version: "2024-02-01"
+  chat_deployment: "${AZURE_OPENAI_DEPLOYMENT}"  # e.g. gpt-4o, gpt-4, gpt-35-turbo
+  max_tokens: 1800
+  temperature: 0.85                              # higher = more linguistic variety in corpus
+
+# ── Corpus generation ─────────────────────────
+corpus:
+  target_docs: 3000                              # total synthetic docs to generate
+  batch_size: 10                                 # docs per API call
+  output_path: "data/raw/corpus.jsonl"
+  sectors:
+    - Leveraged Buyout (LBO)
+    - Healthcare Services
+    - Technology & Software
+    - Retail & Consumer
+    - Energy & Utilities
+    - Industrials & Manufacturing
+    - Media & Telecom
+    - Real Estate & REITs
+  rating_buckets:
+    - B3/B-
+    - B2/B
+    - B1/B+
+    - Ba3/BB-
+    - Ba2/BB
+    - Ba1/BB+
+    - Caa1/CCC+
+  doc_types:
+    - analyst_note
+    - watchlist_note
+    - rating_action
+    - covenant_note
+    - attribution_comment
+    - trade_rationale
+    - earnings_call_note
+  event_types:
+    - earnings_miss
+    - leverage_increase
+    - liquidity_event
+    - covenant_breach
+    - m_and_a_announcement
+    - refinancing
+    - sponsor_change
+    - macro_headwind
+    - rating_review
+    - maturity_wall
+
+# ── Preprocessing ─────────────────────────────
+preprocessing:
+  chunk_size: 512                                # tokens per chunk
+  chunk_overlap: 64
+  min_text_length: 80                            # drop docs shorter than this
+  processed_db_path: "data/processed/corpus.duckdb"
+  processed_parquet_path: "data/processed/corpus.parquet"
+
+# ── LLM-first exploration ─────────────────────
+exploration:
+  sample_size: 200                               # docs sent to GPT-4o for prototype labeling
+  taxonomy_output_path: "data/processed/taxonomy.json"
+  labels_output_path: "data/processed/llm_labels.parquet"
+
+# ── Taxonomy (seed — LLM will refine) ─────────
+taxonomy:
+  risk_themes:
+    - leverage_deterioration
+    - liquidity_pressure
+    - refinancing_risk
+    - covenant_stress
+    - earnings_miss_operational_weakness
+    - sponsor_m_and_a_event
+    - regulatory_litigation_risk
+    - sector_technical_pressure
+    - fx_macro_sensitivity
+    - idiosyncratic_event
+  actions:
+    - maintain_position
+    - reduce_exposure
+    - add_on_weakness
+    - escalate_for_review
+    - place_on_watchlist
+    - seek_more_diligence
+    - reassess_thesis
+    - exit
+  outcomes:
+    - spread_widening
+    - downgrade
+    - recovery_stabilization
+    - covenant_amendment
+    - price_recovery
+    - thesis_invalidation
+
+# ── Embeddings & clustering ───────────────────
+embeddings:
+  model_name: "BAAI/bge-small-en-v1.5"
+  device: "cpu"                                  # change to "cuda" if GPU available
+  batch_size: 64
+  n_clusters: 12                                 # KMeans clusters — tune after first run
+  umap_n_neighbors: 15
+  umap_min_dist: 0.1
+  umap_n_components: 2
+  embeddings_path: "data/processed/embeddings.npy"
+  cluster_labels_path: "data/processed/cluster_labels.parquet"
+
+# ── ChromaDB ──────────────────────────────────
+chroma:
+  persist_directory: "data/chroma_db"
+  collection_name: "credit_risk_docs"
+
+# ── Retrieval ─────────────────────────────────
+retrieval:
+  top_k: 10
+  score_threshold: 0.35                          # cosine similarity floor
+
+# ── Logging ───────────────────────────────────
+logging:
+  level: "INFO"
+  log_path: "logs/pipeline.log"

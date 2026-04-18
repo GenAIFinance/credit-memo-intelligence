@@ -1,0 +1,37 @@
+# Azure OpenAI
+openai>=1.30.0
+
+# LangChain core + community
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-chroma>=0.1.0
+
+# Embeddings (open source, local)
+sentence-transformers>=3.0.0
+
+# Vector store
+chromadb>=0.5.0
+
+# Data layer
+pandas>=2.2.0
+pyarrow>=16.0.0
+duckdb>=0.10.0
+
+# Clustering & dimensionality reduction
+scikit-learn>=1.5.0
+umap-learn>=0.5.6
+numpy>=1.26.0
+
+# Config & env
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Retry logic
+tenacity>=8.3.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Streamlit UI
+streamlit>=1.35.0
+plotly>=5.22.0

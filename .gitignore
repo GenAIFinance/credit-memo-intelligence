@@ -1,0 +1,25 @@
+# Credentials — never commit
+.env
+
+# Generated data — too large for git
+data/raw/
+data/processed/
+data/chroma_db/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb

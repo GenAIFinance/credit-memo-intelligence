@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────
-# Credit Risk Theme & Workflow Intelligence Platform
+# Credit Memo Intelligence Platform
 # Master configuration — all tunable params live here
 # ─────────────────────────────────────────────
 
@@ -98,6 +98,52 @@ taxonomy:
     - price_recovery
     - thesis_invalidation
 
+# ── Memo metrics schema ───────────────────────
+# Structured fields extracted from each credit memo.
+# Split into two buckets:
+#   filterable_metrics  → stored as ChromaDB metadata, used for structured filtering
+#   semantic_fields     → embedded alongside memo text, used for semantic search
+metrics:
+  filterable:
+    issuer:
+      type: string
+      required: true
+      description: "Legal entity issuing the debt (e.g. Acme Holdings LLC)"
+    borrower:
+      type: string
+      required: false
+      description: "Operating company (OpCo) — distinct from issuer in LBO structures"
+    net_leverage:
+      type: float
+      required: false
+      unit: "x EBITDA"
+      description: "Net debt / LTM EBITDA at memo date (e.g. 6.8)"
+      range: [0.0, 20.0]
+    total_cap:
+      type: float
+      required: false
+      unit: "$mm"
+      description: "Total capitalization (Total Debt + Equity) from cap table — populated when cap table is present"
+    collateral:
+      type: categorical
+      required: false
+      values:
+        - first_lien
+        - second_lien
+        - unsecured
+        - first_lien_second_lien_split
+        - super_senior_revolver
+    esg_score:
+      type: float
+      required: false
+      range: [0.0, 100.0]
+      description: "ESG composite score — null if not rated"
+  semantic:
+    recommendations:
+      type: text
+      required: true
+      description: "Analyst recommendation prose — embedded for semantic retrieval"
+
 # ── Embeddings & clustering ───────────────────
 embeddings:
   model_name: "BAAI/bge-small-en-v1.5"
@@ -113,7 +159,7 @@ embeddings:
 # ── ChromaDB ──────────────────────────────────
 chroma:
   persist_directory: "data/chroma_db"
-  collection_name: "credit_risk_docs"
+  collection_name: "credit_memo_docs"
 
 # ── Retrieval ─────────────────────────────────
 retrieval:

@@ -69,8 +69,8 @@ def build_client() -> AzureOpenAI:
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 def build_prompt(batch_size: int) -> str:
+    """Build the generation prompt for a given batch size."""
     template = PROMPT_PATH.read_text()
-    az_cfg = CFG["azure_openai"]
     corpus_cfg = CFG["corpus"]
 
     return template.format(
@@ -82,18 +82,99 @@ def build_prompt(batch_size: int) -> str:
     )
 
 
+def _resolve_deployment() -> str:
+    """Resolve Azure deployment name from env or config.
+
+    Config values templated as ${VAR_NAME} are resolved via os.environ.
+    Literal config values are used as-is, avoiding brittle string stripping.
+    """
+    env_override = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+    if env_override:
+        return env_override
+
+    cfg_value = CFG["azure_openai"]["chat_deployment"]
+    # Resolve ${VAR_NAME} template syntax
+    import re
+    match = re.fullmatch(r"\$\{(\w+)\}", cfg_value.strip())
+    if match:
+        var_name = match.group(1)
+        resolved = os.environ.get(var_name)
+        if not resolved:
+            raise EnvironmentError(
+                f"Config references ${{{var_name}}} but that env var is not set."
+            )
+        return resolved
+    # Literal value — use directly
+    return cfg_value
+
+
+# ── Response parsing ──────────────────────────────────────────────────────────
+def _parse_response(raw: str, expected_count: int) -> list[dict]:
+    """Parse model response into a list of document dicts.
+
+    Accepts either a root JSON array or a dict with a 'documents' key.
+    Raises ValueError for any other shape so the caller can retry or skip.
+    """
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Model returned invalid JSON: {exc}") from exc
+
+    if isinstance(parsed, list):
+        docs = parsed
+    elif isinstance(parsed, dict) and "documents" in parsed:
+        docs = parsed["documents"]
+        if not isinstance(docs, list):
+            raise ValueError(
+                f"'documents' key present but value is {type(docs)}, expected list."
+            )
+    else:
+        raise ValueError(
+            f"Unexpected response shape: expected a JSON array or "
+            f"{{\"documents\": [...]}}, got {type(parsed)} with keys "
+            f"{list(parsed.keys()) if isinstance(parsed, dict) else 'n/a'}."
+        )
+
+    if len(docs) == 0:
+        raise ValueError("Model returned an empty document list.")
+
+    log.debug("Parsed %d docs from model (requested %d).", len(docs), expected_count)
+    return docs
+
+
 # ── Single batch call with retry ─────────────────────────────────────────────
+# Retry only on transient errors — not on logic/validation bugs
+_TRANSIENT_ERRORS = (
+    TimeoutError,
+    ConnectionError,
+)
+
+try:
+    from openai import APITimeoutError, APIConnectionError, RateLimitError, InternalServerError
+    _TRANSIENT_ERRORS = (
+        APITimeoutError,
+        APIConnectionError,
+        RateLimitError,
+        InternalServerError,
+        TimeoutError,
+        ConnectionError,
+    )
+except ImportError:
+    pass  # Fall back to broad base classes if openai version differs
+
+
 @retry(
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_exception_type(_TRANSIENT_ERRORS),
     wait=wait_exponential(multiplier=2, min=4, max=60),
     stop=stop_after_attempt(5),
 )
 def call_azure(client: AzureOpenAI, prompt: str, batch_size: int) -> list[dict]:
-    """Call Azure OpenAI and parse the returned JSON array."""
-    deployment = os.environ.get(
-        "AZURE_OPENAI_DEPLOYMENT",
-        CFG["azure_openai"]["chat_deployment"].strip("${}"),
-    )
+    """Call Azure OpenAI and return a parsed list of document dicts.
+
+    Retries only on transient network/rate-limit errors.
+    Raises ValueError immediately on bad response shapes (no retry).
+    """
+    deployment = _resolve_deployment()
 
     response = client.chat.completions.create(
         model=deployment,
@@ -104,20 +185,44 @@ def call_azure(client: AzureOpenAI, prompt: str, batch_size: int) -> list[dict]:
     )
 
     raw = response.choices[0].message.content.strip()
+    return _parse_response(raw, expected_count=batch_size)
 
-    # Model sometimes wraps in {"documents": [...]} — unwrap defensively
-    parsed = json.loads(raw)
-    if isinstance(parsed, dict):
-        # Find the first list value
-        for v in parsed.values():
-            if isinstance(v, list):
-                parsed = v
-                break
 
-    if not isinstance(parsed, list):
-        raise ValueError(f"Expected a JSON array, got: {type(parsed)}")
+# ── Safe coercion helpers ─────────────────────────────────────────────────────
+_BOOL_TRUE = {True, 1, "1", "true", "yes", "y"}
+_BOOL_FALSE = {False, 0, "0", "false", "no", "n", None, ""}
 
-    return parsed
+
+def _to_float(value: object, default: float | None = None) -> float | None:
+    """Coerce value to float, returning default on failure instead of raising."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _to_int(value: object, default: int = 0) -> int:
+    """Coerce value to int, returning default on failure instead of raising."""
+    if value is None:
+        return default
+    try:
+        return int(float(value))  # handles "3.0" → 3
+    except (ValueError, TypeError):
+        return default
+
+
+def _to_bool(value: object) -> bool:
+    """Parse boolean robustly — treats string 'false'/'no' as False."""
+    if isinstance(value, str):
+        value = value.strip().lower()
+    if value in _BOOL_TRUE:
+        return True
+    if value in _BOOL_FALSE:
+        return False
+    # Unknown value — default safe
+    return False
 
 
 # ── Validate and clean a single document ─────────────────────────────────────
@@ -168,24 +273,23 @@ def validate_doc(doc: dict) -> dict | None:
     if doc.get("collateral") not in VALID_COLLATERAL:
         doc["collateral"] = None
 
-    # Coerce numerics safely
-    doc["exposure_change"] = float(doc.get("exposure_change") or 0.0)
-    doc["spread_change"] = int(doc.get("spread_change") or 0)
-    doc["rating_change"] = int(doc.get("rating_change") or 0)
-    doc["watchlist_flag"] = bool(doc.get("watchlist_flag", False))
+    # Coerce numerics safely — malformed values get default, not a crash
+    doc["exposure_change"] = _to_float(doc.get("exposure_change"), default=0.0)
+    doc["spread_change"] = _to_int(doc.get("spread_change"), default=0)
+    doc["rating_change"] = _to_int(doc.get("rating_change"), default=0)
+    doc["watchlist_flag"] = _to_bool(doc.get("watchlist_flag"))
 
-    # Required numeric fields — coerce to float, drop doc if missing
+    # Required numeric fields — drop doc if missing or malformed
     for field in REQUIRED_NUMERIC:
-        val = doc.get(field)
+        val = _to_float(doc.get(field))
         if val is None:
-            log.debug("Dropping doc missing required numeric field: %s", field)
+            log.debug("Dropping doc — required numeric field missing or malformed: %s", field)
             return None
-        doc[field] = float(val)
+        doc[field] = val
 
-    # Optional numeric fields — coerce to float or keep None
+    # Optional numeric fields — coerce or keep None
     for field in OPTIONAL_NUMERIC:
-        val = doc.get(field)
-        doc[field] = float(val) if val is not None else None
+        doc[field] = _to_float(doc.get(field))
 
     # Guarantee a doc_id
     if not doc.get("doc_id"):
@@ -203,10 +307,24 @@ def count_existing(output_path: Path) -> int:
 
 
 # ── Main generation loop ──────────────────────────────────────────────────────
+MAX_CONSECUTIVE_EMPTY = 5  # abort if this many batches in a row yield 0 valid docs
+
+
 def generate(target: int | None = None) -> None:
+    """Run the corpus generation loop until target valid docs are written.
+
+    Uses a while loop so partial batches (model returns fewer valid docs than
+    requested) do not cause the corpus to silently undershoot the target.
+    """
     corpus_cfg = CFG["corpus"]
     target = target or corpus_cfg["target_docs"]
+    if target <= 0:
+        raise ValueError(f"target must be a positive integer, got {target}")
+
     batch_size = corpus_cfg["batch_size"]
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size}")
+
     output_path = ROOT / corpus_cfg["output_path"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -217,60 +335,86 @@ def generate(target: int | None = None) -> None:
         log.info("Already have %d docs (target %d). Nothing to do.", already_done, target)
         return
 
-    remaining = target - already_done
     log.info(
-        "Generating %d docs (target=%d, already_done=%d, batch_size=%d)",
-        remaining, target, already_done, batch_size,
+        "Generating docs (target=%d, already_done=%d, batch_size=%d)",
+        target, already_done, batch_size,
     )
 
-    n_batches = (remaining + batch_size - 1) // batch_size
     written = already_done
     failed_batches = 0
+    consecutive_empty = 0
+    batch_idx = 0
 
     with open(output_path, "a") as out_f:
-        with tqdm(total=remaining, desc="Generating docs", unit="doc") as pbar:
-            for batch_idx in range(n_batches):
-                # Last batch may be smaller
+        with tqdm(total=target - already_done, desc="Generating docs", unit="doc") as pbar:
+            while written < target:
                 this_batch = min(batch_size, target - written)
                 prompt = build_prompt(this_batch)
 
                 try:
                     docs = call_azure(client, prompt, this_batch)
+                except ValueError as exc:
+                    # Bad response shape — log and skip, do not retry
+                    log.error("Batch %d bad response (skipping): %s", batch_idx, exc)
+                    failed_batches += 1
+                    consecutive_empty += 1
                 except Exception as exc:
+                    # Transient error exhausted retries
                     log.error("Batch %d failed after retries: %s", batch_idx, exc)
                     failed_batches += 1
+                    consecutive_empty += 1
                     time.sleep(10)
-                    continue
+                else:
+                    batch_written = 0
+                    for doc in docs:
+                        clean = validate_doc(doc)
+                        if clean:
+                            out_f.write(json.dumps(clean) + "\n")
+                            batch_written += 1
 
-                batch_written = 0
-                for doc in docs:
-                    clean = validate_doc(doc)
-                    if clean:
-                        out_f.write(json.dumps(clean) + "\n")
-                        batch_written += 1
+                    out_f.flush()
+                    written += batch_written
+                    pbar.update(batch_written)
 
-                out_f.flush()
-                written += batch_written
-                pbar.update(batch_written)
+                    if batch_written == 0:
+                        consecutive_empty += 1
+                        log.warning(
+                            "Batch %d produced 0 valid docs (%d consecutive).",
+                            batch_idx, consecutive_empty,
+                        )
+                    else:
+                        consecutive_empty = 0
 
-                log.debug(
-                    "Batch %d/%d: wrote %d docs (total %d/%d)",
-                    batch_idx + 1, n_batches, batch_written, written, target,
-                )
+                    log.debug(
+                        "Batch %d: wrote %d docs (total %d/%d)",
+                        batch_idx, batch_written, written, target,
+                    )
+
+                if consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
+                    log.error(
+                        "Aborting: %d consecutive batches produced 0 valid docs. "
+                        "Check model output and prompt.",
+                        consecutive_empty,
+                    )
+                    break
+
+                batch_idx += 1
 
                 # Polite pause between batches — avoids rate-limit spikes
-                if batch_idx < n_batches - 1:
+                if written < target:
                     time.sleep(1.5)
 
     log.info(
-        "Generation complete. Total docs written: %d. Failed batches: %d.",
-        written, failed_batches,
+        "Generation complete. Valid docs written: %d / %d. Failed batches: %d.",
+        written, target, failed_batches,
     )
-    if failed_batches:
+    if written < target:
         log.warning(
-            "%d batches failed. Re-run the script to resume — it will pick up where it left off.",
-            failed_batches,
+            "Corpus is %d docs short of target. Re-run to resume from where it left off.",
+            target - written,
         )
+    if failed_batches:
+        log.warning("%d batches failed.", failed_batches)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

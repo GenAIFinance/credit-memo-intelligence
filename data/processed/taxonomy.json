@@ -1,0 +1,93 @@
+{
+  "risk_themes": [
+    {
+      "label": "sponsor_m_and_a_event",
+      "count": 5,
+      "description": "Events related to mergers and acquisitions initiated by sponsors, impacting leverage and strategic direction.",
+      "retain": true
+    },
+    {
+      "label": "earnings_miss_operational_weakness",
+      "count": 4,
+      "description": "Instances where companies miss earnings expectations due to operational challenges, affecting financial stability.",
+      "retain": true
+    },
+    {
+      "label": "refinancing_risk",
+      "count": 2,
+      "description": "Risks associated with the need to refinance existing debt, potentially impacting liquidity and credit ratings.",
+      "retain": true
+    },
+    {
+      "label": "leverage_deterioration",
+      "count": 5,
+      "description": "Situations where a company's leverage increases significantly, raising concerns about financial health.",
+      "retain": true
+    },
+    {
+      "label": "covenant_stress",
+      "count": 4,
+      "description": "Stress on financial covenants due to operational or financial challenges, potentially leading to breaches.",
+      "retain": true
+    },
+    {
+      "label": "sector_technical_pressure",
+      "count": 1,
+      "description": "Pressure from sector-specific technical factors affecting company performance and credit outlook.",
+      "retain": false
+    }
+  ],
+  "actions": [
+    {
+      "label": "maintain_position",
+      "count": 8,
+      "retain": true
+    },
+    {
+      "label": "add_on_weakness",
+      "count": 3,
+      "retain": true
+    },
+    {
+      "label": "reduce_exposure",
+      "count": 4,
+      "retain": true
+    },
+    {
+      "label": "place_on_watchlist",
+      "count": 3,
+      "retain": true
+    }
+  ],
+  "outcomes": [
+    {
+      "label": "recovery_stabilization",
+      "count": 7,
+      "retain": true
+    },
+    {
+      "label": "spread_widening",
+      "count": 5,
+      "retain": true
+    },
+    {
+      "label": "downgrade",
+      "count": 3,
+      "retain": true
+    },
+    {
+      "label": "price_recovery",
+      "count": 1,
+      "retain": false
+    },
+    {
+      "label": "covenant_amendment",
+      "count": 1,
+      "retain": false
+    }
+  ],
+  "new_labels_proposed": [],
+  "ambiguous_cases": 0,
+  "low_confidence_cases": 2,
+  "analyst_notes": "The corpus is dominated by themes of leverage deterioration and sponsor M&A events, indicating a focus on financial restructuring and strategic growth. Covenant stress and earnings misses are also prevalent, highlighting operational challenges. The presence of sector technical pressure was surprisingly sparse."
+}

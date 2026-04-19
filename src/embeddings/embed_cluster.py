@@ -28,6 +28,7 @@ Usage:
 import argparse
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -337,17 +338,21 @@ def _write_to_chroma(
     df: pd.DataFrame,
     embeddings: np.ndarray,
     cluster_labels: np.ndarray,
+    risk_theme_map: dict[str, str] | None = None,
 ) -> None:
     """Persist chunks and embeddings in ChromaDB for Phase 5 retrieval.
 
     Each chunk is stored with its embedding and a metadata dict containing
-    all memo-level metrics plus cluster_id. This enables combined semantic
-    + structured filtering at retrieval time.
+    all memo-level metrics plus cluster_id and risk_theme. This enables
+    combined semantic + structured filtering at retrieval time.
 
     Args:
-        df:             Chunk DataFrame from DuckDB.
-        embeddings:     2D embedding array aligned with df rows.
-        cluster_labels: KMeans cluster assignments.
+        df:              Chunk DataFrame from DuckDB.
+        embeddings:      2D embedding array aligned with df rows.
+        cluster_labels:  KMeans cluster assignments.
+        risk_theme_map:  Optional dict mapping doc_id to GPT-4o risk_theme
+                         label from Phase 3 llm_labels.parquet. Chunks from
+                         docs not in the map get risk_theme="".
     """
     persist_dir = str(ROOT / CHROMA_CFG["persist_directory"])
     collection_name = CHROMA_CFG["collection_name"]
@@ -394,12 +399,24 @@ def _write_to_chroma(
                 "cluster_id": int(batch_clusters[i]),
                 "watchlist_flag": bool(getattr(row, "watchlist_flag", False)),
             }
+            # risk_theme from Phase 3 GPT-4o labels — join by doc_id
+            meta["risk_theme"] = (
+                risk_theme_map.get(str(row.doc_id), "")
+                if risk_theme_map else ""
+            )
             for col in _NULLABLE_STR_COLS:
                 val = getattr(row, col, None)
                 meta[col] = str(val) if val is not None else ""
             for col in _NULLABLE_NUM_COLS:
                 val = getattr(row, col, None)
-                meta[col] = float(val) if val is not None else 0.0
+                # pandas represents NULL numeric DuckDB fields as NaN —
+                # val is not None passes for NaN, but float(NaN) produces
+                # a non-finite value that ChromaDB rejects or drops silently.
+                try:
+                    f = float(val)
+                    meta[col] = f if math.isfinite(f) else 0.0
+                except (TypeError, ValueError):
+                    meta[col] = 0.0
             metadatas.append(meta)
 
         collection.upsert(
@@ -497,10 +514,27 @@ def embed_and_cluster(dry_run: bool = False) -> None:
     log.info("Cluster labels saved to %s.", cluster_path)
 
     # Step 7 — ChromaDB
+    # Build risk_theme map from Phase 3 labels to persist at index time
+    risk_theme_map: dict[str, str] = {}
+    if llm_labels_path.exists():
+        try:
+            labels_df = pd.read_parquet(llm_labels_path)
+            risk_theme_map = (
+                labels_df.dropna(subset=["doc_id", "risk_theme"])
+                .set_index("doc_id")["risk_theme"]
+                .to_dict()
+            )
+            log.info(
+                "Loaded %d risk_theme labels for ChromaDB indexing.",
+                len(risk_theme_map),
+            )
+        except Exception as exc:
+            log.warning("Could not load llm_labels for risk_theme map: %s", exc)
+
     if dry_run:
         log.info("dry-run mode — skipping ChromaDB write.")
     else:
-        _write_to_chroma(df, embeddings, cluster_labels)
+        _write_to_chroma(df, embeddings, cluster_labels, risk_theme_map=risk_theme_map)
 
     log.info("Phase 4 complete.")
 

@@ -42,7 +42,71 @@ import duckdb
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+# RecursiveCharacterTextSplitter — implemented directly to mirror LangChain's
+# interface without the heavy dependency. Follows the same separator hierarchy:
+# paragraph → newline → sentence → word → character.
+# In production with LangChain installed, swap to:
+#   from langchain_text_splitters import RecursiveCharacterTextSplitter
+class RecursiveCharacterTextSplitter:
+    """LangChain-compatible recursive character text splitter.
+
+    Splits text using a hierarchy of separators, trying each in order
+    until chunks are within chunk_size. Mirrors the LangChain API so
+    the implementation can be swapped with the official class.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 64,
+        separators: list[str] | None = None,
+        length_function=len,
+    ) -> None:
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.separators = separators or ["\n\n", "\n", ". ", " ", ""]
+        self.length_function = length_function
+
+    def split_text(self, text: str) -> list[str]:
+        """Split text into chunks respecting chunk_size and chunk_overlap."""
+        if self.length_function(text) <= self.chunk_size:
+            return [text] if text.strip() else []
+        return self._split(text, self.separators)
+
+    def _split(self, text: str, separators: list[str]) -> list[str]:
+        """Recursively split on separators until chunks fit chunk_size."""
+        sep = separators[0] if separators else ""
+        remaining = separators[1:] if separators else []
+
+        splits = text.split(sep) if sep else list(text)
+        chunks: list[str] = []
+        current = ""
+
+        for part in splits:
+            candidate = (current + sep + part) if current else part
+            if self.length_function(candidate) <= self.chunk_size:
+                current = candidate
+            else:
+                if current:
+                    chunks.append(current)
+                # Part itself too large — recurse with next separator
+                if self.length_function(part) > self.chunk_size and remaining:
+                    chunks.extend(self._split(part, remaining))
+                else:
+                    current = part
+
+        if current:
+            chunks.append(current)
+
+        # Apply overlap: prepend tail of previous chunk to next
+        if self.chunk_overlap <= 0 or len(chunks) <= 1:
+            return [c for c in chunks if c.strip()]
+
+        overlapped: list[str] = [chunks[0]]
+        for i in range(1, len(chunks)):
+            prev_tail = chunks[i - 1][-self.chunk_overlap:]
+            overlapped.append(prev_tail + chunks[i])
+        return [c for c in overlapped if c.strip()]
 from tqdm import tqdm
 
 from src.preprocessing.table_serializer import TableSerializer

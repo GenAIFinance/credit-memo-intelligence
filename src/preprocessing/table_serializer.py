@@ -23,7 +23,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 from tenacity import (
-    retry,
+    Retrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -96,22 +96,34 @@ class TableSerializer:
             self._client = get_llm_client()
         return self._client
 
-    @retry(
-        retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
-        stop=stop_after_attempt(3),
-    )
     def _call_api(self, prompt: str) -> str:
-        """Call the configured LLM with retry on transient errors only."""
-        client = self._get_client()
+        """Call the configured LLM with retry on transient errors only.
 
-        response = client.chat.completions.create(
-            model=get_model_name(),
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0.2,  # low temperature — factual serialization
-        )
-        return response.choices[0].message.content.strip()
+        Uses self._max_retries so the caller-provided value is respected.
+        Guards against None content in the API response.
+        """
+        for attempt in Retrying(
+            retry=retry_if_exception_type(_TRANSIENT_ERRORS),
+            wait=wait_exponential(multiplier=2, min=2, max=30),
+            stop=stop_after_attempt(self._max_retries),
+        ):
+            with attempt:
+                client = self._get_client()
+                response = client.chat.completions.create(
+                    model=get_model_name(),
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300,
+                    temperature=0.2,  # low temperature — factual serialization
+                )
+                content = response.choices[0].message.content
+                if not content:
+                    raise ValueError(
+                        "API returned empty or None content — "
+                        "will retry if attempts remain."
+                    )
+                return content.strip()
+        # Retrying exhausted — unreachable but satisfies type checker
+        raise RuntimeError("Retry loop exited without returning.")
 
     def _build_template_fallback(
         self,

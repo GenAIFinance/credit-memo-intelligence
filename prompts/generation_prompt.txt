@@ -1,8 +1,8 @@
 You are a senior credit analyst at a leveraged finance desk. Generate {batch_size} realistic, distinct credit memo documents for leveraged loan issuers.
 
-Each document must follow this exact JSON schema — return a JSON array of {batch_size} objects, nothing else:
+Each document must follow this exact JSON schema — return a JSON object with a 'documents' key containing an array of {batch_size} objects, nothing else:
 
-[
+{{"documents": [
   {{
     "doc_id": "<uuid>",
 
@@ -32,7 +32,7 @@ Each document must follow this exact JSON schema — return a JSON array of {bat
     "watchlist_flag": <true or false>,
     "portfolio_action": "<one of: hold | trim | add | sell | monitor>"
   }}
-]
+]}}
 
 Constraints:
 - Sector: choose from {sectors}
@@ -47,4 +47,4 @@ Constraints:
 - Include label noise: some documents should have ambiguous or overlapping risk themes
 - Dates should be spread across 2020-2024
 - All financial metrics must be internally consistent within each document
-- Return only the JSON array — no preamble, no markdown fences
+- Return only the JSON object with a "documents" key — no preamble, no markdown fences

@@ -12,7 +12,7 @@ llm:
 openai:
   api_key: "${OPENAI_API_KEY}"
   model: "gpt-4o"
-  max_tokens: 1800
+  max_tokens: 1500                               # per-doc token budget (× batch_size must stay < 16384)
   temperature: 0.85
 
 # ── Azure OpenAI ──────────────────────────────
@@ -21,13 +21,13 @@ azure_openai:
   api_key: "${AZURE_OPENAI_API_KEY}"
   api_version: "2024-02-01"
   chat_deployment: "${AZURE_OPENAI_DEPLOYMENT}"  # e.g. gpt-4o, gpt-4, gpt-35-turbo
-  max_tokens: 1800
+  max_tokens: 1500
   temperature: 0.85                              # higher = more linguistic variety in corpus
 
 # ── Corpus generation ─────────────────────────
 corpus:
   target_docs: 3000                              # total synthetic docs to generate
-  batch_size: 10                                 # docs per API call
+  batch_size: 5                                  # docs per API call (1500 × 5 = 7500 < 16384)
   output_path: "data/raw/corpus.jsonl"
   sectors:
     - Leveraged Buyout (LBO)

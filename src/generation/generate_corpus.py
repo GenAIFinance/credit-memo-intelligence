@@ -138,11 +138,14 @@ def call_azure(client: object, prompt: str, batch_size: int) -> list[dict]:
     Raises ValueError immediately on bad response shapes (no retry).
     """
     provider_cfg = get_provider_cfg()
+    # Cap at 16384 — GPT-4o's max completion tokens
+    # max_tokens × batch_size can exceed the model limit without this guard
+    max_tokens = min(provider_cfg["max_tokens"] * batch_size, 16384)
 
     response = client.chat.completions.create(
         model=get_model_name(),
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=provider_cfg["max_tokens"] * batch_size,
+        max_tokens=max_tokens,
         temperature=provider_cfg["temperature"],
         response_format={"type": "json_object"},
     )

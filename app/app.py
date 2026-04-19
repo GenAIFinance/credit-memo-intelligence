@@ -17,6 +17,7 @@ Run:
     streamlit run app/app.py
 """
 
+import html
 import json
 import sys
 from pathlib import Path
@@ -214,10 +215,17 @@ def load_chunks() -> pd.DataFrame:
     db_path = ROOT / "data" / "processed" / "corpus.duckdb"
     if not db_path.exists():
         return pd.DataFrame()
-    conn = duckdb.connect(str(db_path), read_only=True)
-    df = conn.execute("SELECT * FROM chunks").df()
-    conn.close()
-    return df
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+        df = conn.execute("SELECT * FROM chunks").df()
+        conn.close()
+        return df
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not load chunks from DuckDB: %s", exc
+        )
+        return pd.DataFrame()
 
 
 @st.cache_data
@@ -346,11 +354,14 @@ def page_taxonomy() -> None:
             for nl in new_labels:
                 rec = nl.get("recommendation", "")
                 color = {"add_to_taxonomy": "#3fb950", "merge_into_existing": "#58a6ff"}.get(rec, "#7d8590")
+                _rec = html.escape(str(rec))
+                _label = html.escape(str(nl.get("label", "")))
+                _cat = html.escape(str(nl.get("category", "")))
                 st.markdown(
                     f'<div class="memo-card">'
-                    f'<span style="color:{color};font-family:IBM Plex Mono;font-size:0.75rem">{rec}</span><br>'
-                    f'<strong>{nl.get("label","")}</strong> '
-                    f'<span class="section-tag">{nl.get("category","")}</span>'
+                    f'<span style="color:{color};font-family:IBM Plex Mono;font-size:0.75rem">{_rec}</span><br>'
+                    f'<strong>{_label}</strong> '
+                    f'<span class="section-tag">{_cat}</span>'
                     f'<br><small style="color:#7d8590">Appeared in {nl.get("count",0)} docs</small>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -422,7 +433,14 @@ def page_cluster_map() -> None:
             default=[],
         )
     with ctrl_col3:
-        max_points = st.slider("Max points", 500, min(10000, len(chunks_df)), 3000, 500)
+        n_chunks = len(chunks_df)
+        max_points = st.slider(
+            "Max points",
+            min_value=1,
+            max_value=max(1, n_chunks),
+            value=min(3000, n_chunks),
+            step=max(1, min(500, n_chunks // 10)),
+        )
 
     # Apply filters
     plot_df = chunks_df.dropna(subset=["umap_x", "umap_y"])
@@ -469,16 +487,33 @@ def page_cluster_map() -> None:
     # ── Show selected point detail
     if selected and selected.get("selection", {}).get("points"):
         pt = selected["selection"]["points"][0]
-        idx = pt.get("point_index", 0)
-        if idx < len(plot_df):
-            row = plot_df.iloc[idx]
+
+        # point_index is trace-local — unreliable when scatter is split
+        # into multiple color traces. Resolve via chunk_id from customdata
+        # which is stable regardless of how Plotly splits the traces.
+        custom = pt.get("customdata") or []
+        chunk_id = custom[0] if custom else None
+
+        if chunk_id:
+            matches = plot_df[plot_df["chunk_id"] == chunk_id]
+            row = matches.iloc[0] if not matches.empty else None
+        else:
+            # Fallback: point_index within single-trace plots
+            idx = pt.get("point_index", 0)
+            row = plot_df.iloc[idx] if idx < len(plot_df) else None
+
+        if row is not None:
             st.markdown("**Selected chunk:**")
+            _iss = html.escape(str(row.get("issuer", "")))
+            _sec = html.escape(str(row.get("section", "")))
+            _cid = html.escape(str(row.get("cluster_id", "")))
+            _txt = html.escape(str(row.get("text", ""))[:400])
             st.markdown(
                 f'<div class="memo-card">'
-                f'<strong>{row.get("issuer","")}</strong>'
-                f'<span class="section-tag">{row.get("section","")}</span>'
-                f'<span class="metric-pill">cluster {row.get("cluster_id","")}</span>'
-                f'<p style="margin-top:0.5rem;color:#e6edf3;font-size:0.9rem">{str(row.get("text",""))[:400]}...</p>'
+                f'<strong>{_iss}</strong>'
+                f'<span class="section-tag">{_sec}</span>'
+                f'<span class="metric-pill">cluster {_cid}</span>'
+                f'<p style="margin-top:0.5rem;color:#e6edf3;font-size:0.9rem">{_txt}...</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -530,6 +565,9 @@ def page_retrieval() -> None:
             clauses.append({"net_leverage": {"$gte": float(min_leverage)}})
         if max_leverage > 0 and max_leverage >= min_leverage:
             clauses.append({"net_leverage": {"$lte": float(max_leverage)}})
+        if max_leverage > 0 and max_leverage < min_leverage:
+            st.warning("Max leverage must be greater than or equal to min leverage.", icon="⚠️")
+            return None
         if collateral_filter != "Any":
             clauses.append({"collateral": collateral_filter})
         if not clauses:
@@ -574,22 +612,29 @@ def page_retrieval() -> None:
             coll = r.metadata.get("collateral", "").replace("_", " ") or "—"
             sector = r.metadata.get("sector", "") or "—"
             action = r.metadata.get("recommended_action", "").replace("_", " ") or "—"
+            _issuer = html.escape(r.issuer)
+            _section = html.escape(r.section.replace("_", " "))
+            _coll = html.escape(coll)
+            _sector = html.escape(sector[:20])
+            _action = html.escape(action)
+            _text = html.escape(r.text[:350])
+            _trail = "..." if len(r.text) > 350 else ""
 
             st.markdown(
                 f'<div class="memo-card">'
                 f'<div style="display:flex;justify-content:space-between;align-items:center">'
-                f'<strong style="font-size:1rem">{r.issuer}</strong>'
+                f'<strong style="font-size:1rem">{_issuer}</strong>'
                 f'<span class="score-badge">sim {r.score:.3f}</span>'
                 f'</div>'
-                f'<span class="section-tag">{r.section.replace("_"," ")}</span>'
+                f'<span class="section-tag">{_section}</span>'
                 f'<div style="margin-top:0.6rem">'
                 f'<span class="metric-pill">leverage {lev}</span>'
-                f'<span class="metric-pill">{coll}</span>'
-                f'<span class="metric-pill">{sector[:20]}</span>'
-                f'<span class="metric-pill">→ {action}</span>'
+                f'<span class="metric-pill">{_coll}</span>'
+                f'<span class="metric-pill">{_sector}</span>'
+                f'<span class="metric-pill">→ {_action}</span>'
                 f'</div>'
                 f'<p style="margin-top:0.6rem;color:#c9d1d9;font-size:0.88rem;line-height:1.6">'
-                f'{r.text[:350]}{"..." if len(r.text) > 350 else ""}'
+                f'{_text}{_trail}'
                 f'</p>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -618,11 +663,13 @@ def page_retrieval() -> None:
                 query_text=theme_query or None,
             )
             for r in results:
+                _issuer = html.escape(r.issuer)
+                _text = html.escape(r.text[:280])
                 st.markdown(
                     f'<div class="memo-card">'
-                    f'<strong>{r.issuer}</strong>'
+                    f'<strong>{_issuer}</strong>'
                     f'<span class="score-badge" style="float:right">sim {r.score:.3f}</span>'
-                    f'<p style="color:#c9d1d9;font-size:0.88rem;margin-top:0.5rem">{r.text[:280]}...</p>'
+                    f'<p style="color:#c9d1d9;font-size:0.88rem;margin-top:0.5rem">{_text}...</p>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -654,12 +701,19 @@ def page_decomposition() -> None:
     row = doc_rows.iloc[0]
 
     # ── Memo metadata strip
+    _sector = html.escape(str(row.get("sector", "")))
+    _rating = html.escape(str(row.get("rating_bucket", "")))
+    _doctype = html.escape(str(row.get("doc_type", "")).replace("_", " "))
+    _lev_pill = (
+        f'<span class="metric-pill">leverage {row.get("net_leverage"):.1f}x</span>'
+        if row.get("net_leverage") else ""
+    )
     st.markdown(
         f'<div style="background:#1c2128;border:1px solid #30363d;border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem">'
-        f'<span class="metric-pill">{row.get("sector","")}</span>'
-        f'<span class="metric-pill">{row.get("rating_bucket","")}</span>'
-        f'<span class="metric-pill">{row.get("doc_type","").replace("_"," ")}</span>'
-        + (f'<span class="metric-pill">leverage {row.get("net_leverage"):.1f}x</span>' if row.get("net_leverage") else "")
+        f'<span class="metric-pill">{_sector}</span>'
+        f'<span class="metric-pill">{_rating}</span>'
+        f'<span class="metric-pill">{_doctype}</span>'
+        + _lev_pill
         + '</div>',
         unsafe_allow_html=True,
     )
@@ -687,7 +741,7 @@ def page_decomposition() -> None:
     ]
     for col, (label, field, hint) in zip(slot_cols, slots):
         with col:
-            text = str(row.get(field, "—"))
+            text = html.escape(str(row.get(field, "—")))
             st.markdown(
                 f'<div class="slot-card">'
                 f'<div class="slot-label">{label}</div>'

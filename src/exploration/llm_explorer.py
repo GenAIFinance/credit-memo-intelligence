@@ -88,11 +88,15 @@ _BOOL_TRUE = {True, 1, "1", "true", "yes", "y"}
 _BOOL_FALSE = {False, 0, "0", "false", "no", "n", None, ""}
 
 
-def _to_bool(value: object) -> bool:
-    """Parse boolean robustly — handles string 'false'/'no' as False.
+def _to_bool(value: object) -> bool | None:
+    """Parse boolean robustly — returns None for unrecognized values.
 
     LLMs sometimes return JSON booleans as strings (e.g. "false" instead
     of false). Plain bool("false") returns True, which is incorrect.
+
+    Returns:
+        True / False for known values.
+        None for unrecognized values — caller must decide how to handle.
     """
     if isinstance(value, str):
         value = value.strip().lower()
@@ -100,7 +104,7 @@ def _to_bool(value: object) -> bool:
         return True
     if value in _BOOL_FALSE:
         return False
-    return False  # unknown value — safe default
+    return None  # unknown value — signal malformed output to caller
 
 
 # ── Prompt template sections ──────────────────────────────────────────────────
@@ -307,7 +311,14 @@ def _parse_label(raw: str, doc_id: str) -> dict[str, Any] | None:
     except (ValueError, TypeError):
         label["confidence"] = 0.0
 
-    label["ambiguous"] = _to_bool(label.get("ambiguous", False))
+    ambiguous = _to_bool(label.get("ambiguous", False))
+    if ambiguous is None:
+        log.warning(
+            "Doc %s has unrecognized 'ambiguous' value '%s' — dropping label.",
+            doc_id, label.get("ambiguous"),
+        )
+        return None
+    label["ambiguous"] = ambiguous
     label["doc_id"] = doc_id
     return label
 

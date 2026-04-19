@@ -90,9 +90,22 @@ class TestToBool:
         from src.exploration.llm_explorer import _to_bool
         assert _to_bool(None) is False
 
-    def test_unknown_value_returns_false(self):
+    def test_unknown_value_returns_none(self):
+        """Codex finding: unknown values must return None, not silently False."""
         from src.exploration.llm_explorer import _to_bool
-        assert _to_bool("maybe") is False
+        assert _to_bool("maybe") is None
+        assert _to_bool("unknown") is None
+        assert _to_bool("typo") is None
+
+    @pytest.mark.parametrize("value", ["yes", "Y", "y", "1", 1, " yes ", " true "])
+    def test_truthy_variants(self, value):
+        from src.exploration.llm_explorer import _to_bool
+        assert _to_bool(value) is True
+
+    @pytest.mark.parametrize("value", ["no", "N", "n", "0", 0, " no ", " false ", ""])
+    def test_falsy_variants(self, value):
+        from src.exploration.llm_explorer import _to_bool
+        assert _to_bool(value) is False
 
 
 # ── _parse_label ──────────────────────────────────────────────────────────────
@@ -152,6 +165,19 @@ class TestParseLabel:
         result = _parse_label(raw, doc_id="my-doc-id")
         assert result is not None
         assert result["doc_id"] == "my-doc-id"
+
+    def test_unknown_ambiguous_value_drops_label(self):
+        """Codex finding: unrecognized ambiguous values must not silently become False."""
+        from src.exploration.llm_explorer import _parse_label
+        raw = _valid_label_json(ambiguous="maybe")
+        result = _parse_label(raw, doc_id="test-008")
+        assert result is None, "Label with unrecognized ambiguous value must be dropped"
+
+    def test_unknown_ambiguous_typo_drops_label(self):
+        from src.exploration.llm_explorer import _parse_label
+        raw = _valid_label_json(ambiguous="uncertain")
+        result = _parse_label(raw, doc_id="test-009")
+        assert result is None
 
 
 # ── _stratified_sample ────────────────────────────────────────────────────────

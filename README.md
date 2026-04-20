@@ -94,7 +94,7 @@ conceptually related memos; metadata filters restrict to structurally relevant o
 
 ## Skills demonstrated
 
-| Skill (from job description) | Implementation |
+| Skill | Implementation |
 |---|---|
 | LLM-first exploratory analysis | GPT-4o labels 200-doc sample; taxonomy discovered from data, not imposed top-down |
 | Rapid semantic clustering | BGE-small → KMeans → UMAP 2D cluster map; validated with ARI against GPT-4o labels |
